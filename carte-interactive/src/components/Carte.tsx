@@ -5,6 +5,7 @@ import type { LatLngExpression, LeafletMouseEvent } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import markerPng from 'leaflet/dist/images/marker-icon.png'
 import markerShadowPng from 'leaflet/dist/images/marker-shadow.png'
+import * as XLSX from 'xlsx'
 
 // Icône PNG visible et fiable (icône par défaut Leaflet). Remplaçable par un PNG custom.
 const maisonIcon = new L.Icon({
@@ -96,6 +97,95 @@ export default function Carte() {
   const reinitialiserMarqueurs = useCallback(() => {
     setMarqueurs([])
   }, [])
+
+  const exporterJSON = useCallback(() => {
+    if (pointsPolygone.length === 0 && marqueurs.length === 0) {
+      alert('Aucune donnée à exporter')
+      return
+    }
+
+    const data = {
+      metadata: {
+        dateExport: new Date().toISOString(),
+        nombrePointsPolygone: pointsPolygone.length,
+        nombreMarqueurs: marqueurs.length,
+        polygoneFerme: polygoneFerme
+      },
+      polygone: pointsPolygone.length > 0 ? {
+        type: 'polygone',
+        coordinates: pointsPolygone.map(p => [p.lat, p.lng])
+      } : null,
+      marqueurs: marqueurs.length > 0 ? marqueurs.map((m, index) => ({
+        id: index + 1,
+        latitude: m.lat,
+        longitude: m.lng,
+        coordinates: [m.lat, m.lng]
+      })) : []
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `carte_donnees_${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }, [pointsPolygone, marqueurs, polygoneFerme])
+
+  const exporterExcel = useCallback(() => {
+    if (pointsPolygone.length === 0 && marqueurs.length === 0) {
+      alert('Aucune donnée à exporter')
+      return
+    }
+
+    const workbook = XLSX.utils.book_new()
+    
+    // Créer un onglet avec toutes les données
+    const allData = []
+    
+    // En-têtes
+    allData.push(['Type', 'ID/Point', 'Latitude', 'Longitude', 'Description'])
+    
+    // Données du polygone
+    if (pointsPolygone.length > 0) {
+      allData.push(['=== POLYGONE ===', '', '', '', ''])
+      pointsPolygone.forEach((p, index) => {
+        allData.push(['Polygone', index + 1, p.lat, p.lng, `Point ${index + 1} du polygone`])
+      })
+    }
+    
+    // Données des marqueurs
+    if (marqueurs.length > 0) {
+      allData.push(['=== MARQUEURS ===', '', '', '', ''])
+      marqueurs.forEach((m, index) => {
+        allData.push(['Marqueur', index + 1, m.lat, m.lng, `Marqueur ${index + 1}`])
+      })
+    }
+    
+    // Métadonnées
+    allData.push(['=== MÉTADONNÉES ===', '', '', '', ''])
+    allData.push(['Date d\'export', '', '', '', new Date().toLocaleString('fr-FR')])
+    allData.push(['Points du polygone', '', '', '', pointsPolygone.length])
+    allData.push(['Marqueurs', '', '', '', marqueurs.length])
+    allData.push(['Polygone fermé', '', '', '', polygoneFerme ? 'Oui' : 'Non'])
+
+    // Créer la feuille de calcul
+    const worksheet = XLSX.utils.aoa_to_sheet(allData)
+    
+    // Ajuster la largeur des colonnes
+    worksheet['!cols'] = [
+      { wch: 15 }, // Type
+      { wch: 10 }, // ID/Point
+      { wch: 15 }, // Latitude
+      { wch: 15 }, // Longitude
+      { wch: 25 }  // Description
+    ]
+    
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Données de la carte')
+    XLSX.writeFile(workbook, `carte_donnees_${new Date().toISOString().split('T')[0]}.xlsx`)
+  }, [pointsPolygone, marqueurs, polygoneFerme])
 
   const coordonneesPolygoneLisibles = useMemo(() => {
     return pointsPolygone.map((p, i) => `Point ${i + 1}: (${p.lat.toFixed(6)}, ${p.lng.toFixed(6)})`)
@@ -240,21 +330,82 @@ export default function Carte() {
           <p>Aucun point ajouté pour l'instant.</p>
         )}
         {pointsPolygone.length > 0 && (
-          <ul>
-            {coordonneesPolygoneLisibles.map((txt, i) => (
-              <li key={`c-${i}`}>{txt}</li>
-            ))}
-          </ul>
+          <div>
+            <ul>
+              {coordonneesPolygoneLisibles.map((txt, i) => (
+                <li key={`c-${i}`}>{txt}</li>
+              ))}
+            </ul>
+          </div>
         )}
         {polygoneFerme && (
           <div>
             <p className="statut-ferme">Polygone fermé. Basculez en mode "Marqueur" pour ajouter des marqueurs.</p>
             <div style={{ marginTop: 8 }}>
-              <strong>Tableau des coordonnées (lat, lng):</strong>
+              <strong>Tableau des coordonnées du polygone (lat, lng):</strong>
               <pre style={{ background: '#f5f5f5', padding: 8, overflowX: 'auto' }}>
 {JSON.stringify(pointsPolygone.map((p) => [p.lat, p.lng]), null, 2)}
               </pre>
             </div>
+          </div>
+        )}
+
+        {marqueurs.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <strong>Tableau des coordonnées des marqueurs (lat, lng):</strong>
+            <pre style={{ background: '#f5f5f5', padding: 8, overflowX: 'auto' }}>
+{JSON.stringify(marqueurs.map((m) => [m.lat, m.lng]), null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {/* Boutons d'export - toujours visibles si il y a des données */}
+        {(pointsPolygone.length > 0 || marqueurs.length > 0) && (
+          <div style={{ marginTop: 16, padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#374151' }}>Exporter les données</h3>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button 
+                onClick={exporterJSON}
+                style={{ 
+                  backgroundColor: '#059669', 
+                  color: 'white', 
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                📄 Exporter JSON
+              </button>
+              <button 
+                onClick={exporterExcel}
+                style={{ 
+                  backgroundColor: '#dc2626', 
+                  color: 'white', 
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                📊 Exporter Excel
+              </button>
+            </div>
+            <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#6b7280' }}>
+              Exporte {pointsPolygone.length > 0 ? `${pointsPolygone.length} point(s) du polygone` : ''}
+              {pointsPolygone.length > 0 && marqueurs.length > 0 ? ' et ' : ''}
+              {marqueurs.length > 0 ? `${marqueurs.length} marqueur(s)` : ''}
+            </p>
           </div>
         )}
       </section>
