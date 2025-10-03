@@ -5,7 +5,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <span className="badge">Exercice tehcnique carte interactive - SINI GROUPE</span>
+        <span className="badge">Exercice technique carte interactive - SINI GROUPE</span>
         <h1>Carte interactive Leaflet (React)</h1>
         <p className="sous-titre">Ajoutez des marqueurs et dessinez un polygone</p>
       </header>
